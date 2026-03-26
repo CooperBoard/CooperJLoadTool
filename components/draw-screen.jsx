@@ -47,6 +47,8 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   const [nextRoomNum, setNextRoomNum] = useState(1);
   const [placingComponent, setPlacingComponent] = useState(null);
   const [syncStatus, setSyncStatus] = useState('');
+  const [selectedComponent, setSelectedComponent] = useState(null); // { roomId, compId }
+  const [draggingComponent, setDraggingComponent] = useState(null); // { roomId, compId }
 
   // ============================================================
   // HOTLINK SYNC: Push drawn data into formData
@@ -227,10 +229,49 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
     return null;
   }, [drawRooms]);
 
+  const findComponentAtPoint = useCallback((px, py) => {
+    for (const room of drawRooms) {
+      const walls = getRoomWalls(room);
+      for (const comp of (room.components || [])) {
+        const wall = walls[comp.wallIndex]; if (!wall) continue;
+        const cx = wall.x1 + (wall.x2 - wall.x1) * comp.position;
+        const cy = wall.y1 + (wall.y2 - wall.y1) * comp.position;
+        const isH = wall.y1 === wall.y2;
+        const cW = (comp.w || 36) / 12 * GRID_SIZE;
+        const hitPad = 8 / zoom;
+        let hit = false;
+        if (isH) hit = px >= cx - cW / 2 - hitPad && px <= cx + cW / 2 + hitPad && py >= cy - hitPad && py <= cy + hitPad;
+        else hit = px >= cx - hitPad && px <= cx + hitPad && py >= cy - cW / 2 - hitPad && py <= cy + cW / 2 + hitPad;
+        if (hit) return { roomId: room.id, compId: comp.id, comp, wallIndex: comp.wallIndex };
+      }
+    }
+    return null;
+  }, [drawRooms, getRoomWalls, zoom]);
+
+  const moveComponentToWall = useCallback((roomId, compId, wallIndex, t) => {
+    setDrawRooms(prev => prev.map(r => {
+      if (r.id !== roomId) return r;
+      return { ...r, components: r.components.map(c => c.id === compId ? { ...c, wallIndex, position: Math.max(0.05, Math.min(0.95, t)) } : c) };
+    }));
+  }, []);
+
+  const deleteComponent = useCallback((roomId, compId) => {
+    setDrawRooms(prev => prev.map(r => r.id === roomId ? { ...r, components: r.components.filter(c => c.id !== compId) } : r));
+    setSelectedComponent(null);
+  }, []);
+
   // ============================================================
   // MOUSE HANDLERS
   // ============================================================
   const handleMouseDown = useCallback((e) => {
+    // Right-click to delete component
+    if (e.button === 2) {
+      e.preventDefault();
+      const pos = getCanvasPos(e);
+      const ch = findComponentAtPoint(pos.x, pos.y);
+      if (ch) deleteComponent(ch.roomId, ch.compId);
+      return;
+    }
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
@@ -242,6 +283,16 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
       setDrawStart({ x: snap(pos.x), y: snap(pos.y) });
       setDrawCurrent({ x: snap(pos.x), y: snap(pos.y) });
     } else if (activeTool === 'select') {
+      // Check components first (windows/doors) — start drag if hit
+      const ch = findComponentAtPoint(pos.x, pos.y);
+      if (ch) {
+        setSelectedComponent({ roomId: ch.roomId, compId: ch.compId });
+        setDraggingComponent({ roomId: ch.roomId, compId: ch.compId });
+        setSelectedRoom(drawRooms.find(r => r.id === ch.roomId) || null);
+        setSelectedWall(null);
+        return;
+      }
+      setSelectedComponent(null);
       const wh = findWallAtPoint(pos.x, pos.y);
       if (wh) { setSelectedWall(wh); setSelectedRoom(drawRooms.find(r => r.id === wh.roomId) || null); }
       else { setSelectedRoom(findRoomAtPoint(pos.x, pos.y)); setSelectedWall(null); }
@@ -263,11 +314,23 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   const handleMouseMove = useCallback((e) => {
     if (isPanning) { setPanOffset({ x: e.clientX - panStart.x, y: e.clientY - panStart.y }); return; }
     const pos = getCanvasPos(e);
+    // Dragging a component — snap to nearest wall
+    if (draggingComponent) {
+      const room = drawRooms.find(r => r.id === draggingComponent.roomId);
+      if (room) {
+        const wh = findWallAtPoint(pos.x, pos.y);
+        if (wh && wh.roomId === room.id) {
+          moveComponentToWall(room.id, draggingComponent.compId, wh.wallIndex, wh.t);
+        }
+      }
+      return;
+    }
     if (isDrawing && activeTool === 'room') setDrawCurrent({ x: snap(pos.x), y: snap(pos.y) });
     else setHoveredRoom(findRoomAtPoint(pos.x, pos.y)?.id || null);
-  }, [isPanning, isDrawing, activeTool, getCanvasPos, findRoomAtPoint, panStart]);
+  }, [isPanning, isDrawing, activeTool, getCanvasPos, findRoomAtPoint, panStart, draggingComponent, drawRooms, findWallAtPoint, moveComponentToWall]);
 
   const handleMouseUp = useCallback(() => {
+    if (draggingComponent) { setDraggingComponent(null); return; }
     if (isPanning) { setIsPanning(false); return; }
     if (isDrawing && activeTool === 'room' && drawStart && drawCurrent) {
       const x = Math.min(drawStart.x, drawCurrent.x), y = Math.min(drawStart.y, drawCurrent.y);
@@ -373,8 +436,16 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
         const cy = wall.y1 + (wall.y2 - wall.y1) * comp.position;
         const isH = wall.y1 === wall.y2;
         const cW = (comp.w || 36) / 12 * GRID_SIZE;
+        const isSelComp = selectedComponent && selectedComponent.roomId === room.id && selectedComponent.compId === comp.id;
+        // Selection highlight ring
+        if (isSelComp) {
+          ctx.save(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5 / zoom; ctx.setLineDash([4 / zoom, 3 / zoom]);
+          if (isH) ctx.strokeRect(cx - cW / 2 - 4 / zoom, cy - 7 / zoom, cW + 8 / zoom, 14 / zoom);
+          else ctx.strokeRect(cx - 7 / zoom, cy - cW / 2 - 4 / zoom, 14 / zoom, cW + 8 / zoom);
+          ctx.setLineDash([]); ctx.restore();
+        }
         if (comp.type === 'window') {
-          ctx.fillStyle = 'rgba(100,180,255,0.25)'; ctx.strokeStyle = 'rgba(100,180,255,0.7)'; ctx.lineWidth = 1.5 / zoom;
+          ctx.fillStyle = isSelComp ? 'rgba(100,180,255,0.5)' : 'rgba(100,180,255,0.25)'; ctx.strokeStyle = isSelComp ? '#fff' : 'rgba(100,180,255,0.7)'; ctx.lineWidth = 1.5 / zoom;
           if (isH) { ctx.fillRect(cx - cW / 2, cy - 3 / zoom, cW, 6 / zoom); ctx.strokeRect(cx - cW / 2, cy - 3 / zoom, cW, 6 / zoom); ctx.beginPath(); ctx.moveTo(cx, cy - 3 / zoom); ctx.lineTo(cx, cy + 3 / zoom); ctx.stroke(); }
           else { ctx.fillRect(cx - 3 / zoom, cy - cW / 2, 6 / zoom, cW); ctx.strokeRect(cx - 3 / zoom, cy - cW / 2, 6 / zoom, cW); ctx.beginPath(); ctx.moveTo(cx - 3 / zoom, cy); ctx.lineTo(cx + 3 / zoom, cy); ctx.stroke(); }
         } else {
@@ -502,7 +573,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
           <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total: <span style={{ color: '#fff' }}>{drawRooms.reduce((s, r) => s + Math.round(r.w / GRID_SIZE * r.h / GRID_SIZE), 0)} sf</span></span>
           {syncStatus && <span style={{ color: '#4CAF50', fontSize: '10px' }}>✓ {syncStatus}</span>}
           <div style={{ flex: 1 }} />
-          <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '10px' }}>Alt+Drag pan · Scroll zoom · ESC back</span>
+          <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '10px' }}>Alt+Drag pan · Scroll zoom · Select tool: drag windows/doors · Right-click to delete</span>
         </div>
 
         {/* Component tray */}
@@ -519,7 +590,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
 
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: 'relative', cursor: activeTool === 'room' ? 'crosshair' : activeTool === 'delete' ? 'not-allowed' : isPanning ? 'grabbing' : 'default' }} onWheel={handleWheel}>
-          <canvas ref={canvasRef} style={{ display: 'block' }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={() => { setIsPanning(false); setIsDrawing(false); }} />
+          <canvas ref={canvasRef} style={{ display: 'block', cursor: draggingComponent ? 'grabbing' : undefined }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={() => { setIsPanning(false); setIsDrawing(false); setDraggingComponent(null); }} onContextMenu={(e) => e.preventDefault()} />
         </div>
       </div>
 
