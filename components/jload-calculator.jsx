@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import DrawScreen from './draw-screen';
+import PlanParser from './plan-parser';
 
 const CooperJLoadCalculatorPro = () => {
   const [activeTab, setActiveTab] = useState('project');
@@ -703,6 +704,7 @@ const CooperJLoadCalculatorPro = () => {
   };
 
   const tabs = [
+    { id: 'ai-parse', label: 'AI Parse', icon: '🤖' },
     { id: 'draw', label: 'Draw', icon: '✏️' },
     { id: 'project', label: 'Project', icon: '📋' },
     { id: 'envelope', label: 'Envelope', icon: '🏠' },
@@ -825,6 +827,17 @@ const CooperJLoadCalculatorPro = () => {
         maxHeight: 'calc(100vh - 180px)',
         overflowY: 'auto',
       }}>
+
+        {/* === AI PARSE TAB === */}
+        {activeTab === 'ai-parse' && (
+          <div>
+            <PlanParser
+              formData={formData}
+              setFormData={setFormData}
+              onComplete={() => setActiveTab('rooms')}
+            />
+          </div>
+        )}
 
         {/* === DRAW TAB === */}
         {activeTab === 'draw' && (
