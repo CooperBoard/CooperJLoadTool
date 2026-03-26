@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import DrawScreen from './draw-screen';
 
 const CooperJLoadCalculatorPro = () => {
   const [activeTab, setActiveTab] = useState('project');
   const [activeSubTab, setActiveSubTab] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [results, setResults] = useState(null);
+  const [drawFullScreen, setDrawFullScreen] = useState(false);
   
   const [formData, setFormData] = useState({
     // === PROJECT INFO ===
@@ -554,6 +556,7 @@ const CooperJLoadCalculatorPro = () => {
   };
 
   const tabs = [
+    { id: 'draw', label: 'Draw', icon: '✏️' },
     { id: 'project', label: 'Project', icon: '📋' },
     { id: 'envelope', label: 'Envelope', icon: '🏠' },
     { id: 'windows', label: 'Windows', icon: '🪟' },
@@ -564,6 +567,17 @@ const CooperJLoadCalculatorPro = () => {
     { id: 'rooms', label: 'Rooms', icon: '🚪' },
     { id: 'results', label: 'Results', icon: '📊' },
   ];
+
+  if (drawFullScreen) {
+    return (
+      <DrawScreen
+        formData={formData}
+        setFormData={setFormData}
+        onBack={() => setDrawFullScreen(false)}
+        isFullScreen={true}
+      />
+    );
+  }
 
   return (
     <div style={{
@@ -658,6 +672,27 @@ const CooperJLoadCalculatorPro = () => {
         maxHeight: 'calc(100vh - 180px)',
         overflowY: 'auto',
       }}>
+
+        {/* === DRAW TAB === */}
+        {activeTab === 'draw' && (
+          <div style={{ margin: '-20px', height: 'calc(100vh - 180px)' }}>
+            <DrawScreen
+              formData={formData}
+              setFormData={setFormData}
+              onBack={() => setActiveTab('rooms')}
+              isFullScreen={false}
+            />
+            <button
+              onClick={() => setDrawFullScreen(true)}
+              style={{
+                position: 'absolute', top: '12px', right: '12px',
+                background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+                color: '#fff', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer',
+                fontSize: '13px', zIndex: 10,
+              }}
+            >⛶ Full Screen</button>
+          </div>
+        )}
 
         {/* === PROJECT TAB === */}
         {activeTab === 'project' && (
