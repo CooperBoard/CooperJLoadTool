@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import DrawScreen from './draw-screen';
 
 const CooperJLoadCalculatorPro = () => {
@@ -7,7 +7,10 @@ const CooperJLoadCalculatorPro = () => {
   const [isCalculating, setIsCalculating] = useState(false);
   const [results, setResults] = useState(null);
   const [drawFullScreen, setDrawFullScreen] = useState(false);
-  
+  const [savedProjects, setSavedProjects] = useState([]);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showLoadModal, setShowLoadModal] = useState(false);
+
   const [formData, setFormData] = useState({
     // === PROJECT INFO ===
     project: {
@@ -341,6 +344,144 @@ const CooperJLoadCalculatorPro = () => {
     }));
   };
 
+  // === SAVE / LOAD ===
+  const saveProject = useCallback((name) => {
+    const project = { name, formData, results, savedAt: new Date().toISOString() };
+    const projects = JSON.parse(localStorage.getItem('cooper-jload-projects') || '[]');
+    const existing = projects.findIndex(p => p.name === name);
+    if (existing >= 0) projects[existing] = project;
+    else projects.push(project);
+    localStorage.setItem('cooper-jload-projects', JSON.stringify(projects));
+    setSavedProjects(projects);
+    setShowSaveModal(false);
+  }, [formData, results]);
+
+  const loadProject = useCallback((project) => {
+    setFormData(project.formData);
+    if (project.results) setResults(project.results);
+    setShowLoadModal(false);
+  }, []);
+
+  const deleteProject = useCallback((name) => {
+    const projects = JSON.parse(localStorage.getItem('cooper-jload-projects') || '[]').filter(p => p.name !== name);
+    localStorage.setItem('cooper-jload-projects', JSON.stringify(projects));
+    setSavedProjects(projects);
+  }, []);
+
+  useEffect(() => {
+    setSavedProjects(JSON.parse(localStorage.getItem('cooper-jload-projects') || '[]'));
+  }, []);
+
+  const CLIMATE_DATA = {
+    '29577': { city: 'Myrtle Beach', zone: '3A', cool: 95, heat: 28, lat: 33.69, elev: 25, humidity: 55 },
+    '29572': { city: 'Myrtle Beach', zone: '3A', cool: 95, heat: 28, lat: 33.69, elev: 25, humidity: 55 },
+    '29579': { city: 'Myrtle Beach', zone: '3A', cool: 95, heat: 28, lat: 33.69, elev: 25, humidity: 55 },
+    '29566': { city: 'Murrells Inlet', zone: '3A', cool: 95, heat: 28, lat: 33.55, elev: 20, humidity: 56 },
+    '29575': { city: 'Myrtle Beach', zone: '3A', cool: 95, heat: 28, lat: 33.69, elev: 25, humidity: 55 },
+    '29588': { city: 'Surfside Beach', zone: '3A', cool: 95, heat: 28, lat: 33.61, elev: 20, humidity: 55 },
+    '29526': { city: 'Conway', zone: '3A', cool: 96, heat: 27, lat: 33.84, elev: 35, humidity: 56 },
+    '29440': { city: 'Georgetown', zone: '3A', cool: 95, heat: 28, lat: 33.37, elev: 10, humidity: 57 },
+    '29582': { city: 'North Myrtle Beach', zone: '3A', cool: 95, heat: 29, lat: 33.82, elev: 15, humidity: 55 },
+    '29585': { city: 'Pawleys Island', zone: '3A', cool: 95, heat: 28, lat: 33.43, elev: 10, humidity: 56 },
+    '29568': { city: 'Myrtle Beach', zone: '3A', cool: 95, heat: 28, lat: 33.69, elev: 25, humidity: 55 },
+    '29501': { city: 'Florence', zone: '3A', cool: 97, heat: 25, lat: 34.20, elev: 148, humidity: 54 },
+    '29536': { city: 'Dillon', zone: '3A', cool: 97, heat: 24, lat: 34.42, elev: 105, humidity: 54 },
+    '28401': { city: 'Wilmington NC', zone: '3A', cool: 95, heat: 27, lat: 34.23, elev: 30, humidity: 56 },
+    '29403': { city: 'Charleston', zone: '3A', cool: 96, heat: 28, lat: 32.78, elev: 15, humidity: 57 },
+    '29464': { city: 'Mt Pleasant', zone: '3A', cool: 96, heat: 28, lat: 32.79, elev: 20, humidity: 57 },
+    '29407': { city: 'Charleston', zone: '3A', cool: 96, heat: 28, lat: 32.78, elev: 15, humidity: 57 },
+    '29201': { city: 'Columbia', zone: '3A', cool: 99, heat: 24, lat: 34.00, elev: 292, humidity: 52 },
+    '27601': { city: 'Raleigh NC', zone: '4A', cool: 96, heat: 22, lat: 35.77, elev: 315, humidity: 51 },
+    '28202': { city: 'Charlotte NC', zone: '3A', cool: 97, heat: 22, lat: 35.23, elev: 748, humidity: 50 },
+  };
+
+  const lookupClimate = useCallback((zip) => {
+    const data = CLIMATE_DATA[zip];
+    if (!data) return;
+    setFormData(prev => ({
+      ...prev,
+      project: {
+        ...prev.project,
+        city: data.city,
+        climateZone: data.zone,
+        designCoolingTemp: data.cool,
+        designHeatingTemp: data.heat,
+        latitude: data.lat,
+        elevation: data.elev,
+        coolingHumidity: data.humidity,
+      }
+    }));
+  }, []);
+
+  const exportPDF = useCallback(() => {
+    if (!results) return;
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const r = results;
+    const p = formData.project;
+    let html = `<!DOCTYPE html><html><head><title>Manual J Report — ${p.name || p.customerName || 'Project'}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:Arial,sans-serif;padding:20px;color:#333;max-width:8.5in}
+      .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:3px solid #E31937;margin-bottom:16px}
+      .logo{display:flex;align-items:center;gap:10px}
+      .logo-icon{width:40px;height:40px;background:#E31937;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:800}
+      .company{font-size:16px;font-weight:800;color:#2B3E50}
+      .tagline{font-size:9px;color:#888}
+      h1{font-size:18px;color:#2B3E50;margin-bottom:4px}
+      h2{font-size:14px;color:#2B3E50;margin:16px 0 8px;padding-bottom:4px;border-bottom:2px solid #D4AF37}
+      .info{font-size:11px;color:#666;margin-bottom:2px}
+      .grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+      .card{background:#f4f5f7;border-radius:6px;padding:12px;text-align:center}
+      .card-val{font-size:22px;font-weight:700;color:#2B3E50}
+      .card-label{font-size:9px;color:#888;text-transform:uppercase}
+      .card-primary{background:#E31937;color:#fff}
+      .card-primary .card-val{color:#fff}
+      .card-primary .card-label{color:rgba(255,255,255,0.8)}
+      table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px}
+      th{background:#2B3E50;color:#fff;padding:6px 8px;text-align:left;font-size:10px}
+      td{padding:5px 8px;border-bottom:1px solid #ddd}
+      tr:nth-child(even){background:#f8f9fb}
+      .footer{margin-top:20px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#999;display:flex;justify-content:space-between}
+      .disclaimer{margin-top:10px;font-size:9px;color:#E65100;background:#FFF8E1;padding:8px;border-radius:4px}
+      @media print{body{padding:12px}@page{margin:0.3in}}
+    </style></head><body>`;
+    html += `<div class="header"><div class="logo"><div class="logo-icon">C</div><div><div class="company">COOPER MECHANICAL</div><div class="tagline">HVAC · ELECTRICAL · GENERATORS</div></div></div><div style="text-align:right;font-size:10px;color:#666">Manual J8 Load Report<br>${r.timestamp}</div></div>`;
+    html += `<h1>${p.name || 'Load Calculation Report'}</h1>`;
+    if (p.customerName) html += `<div class="info">Customer: ${p.customerName}</div>`;
+    if (p.address) html += `<div class="info">Address: ${p.address}, ${p.city}, ${p.state} ${p.zip}</div>`;
+    html += `<div class="info">Design: ${p.designCoolingTemp}°F cooling / ${p.designHeatingTemp}°F heating · Climate Zone ${p.climateZone}</div>`;
+    html += `<h2>Load Summary</h2><div class="grid">`;
+    html += `<div class="card card-primary"><div class="card-val">${r.recommendedTonnage}</div><div class="card-label">Recommended Tons</div></div>`;
+    html += `<div class="card"><div class="card-val">${r.totalCoolingLoad.toLocaleString()}</div><div class="card-label">Cooling BTU/hr</div></div>`;
+    html += `<div class="card"><div class="card-val">${r.totalHeatingLoad.toLocaleString()}</div><div class="card-label">Heating BTU/hr</div></div>`;
+    html += `<div class="card"><div class="card-val">${r.totalSqFt.toLocaleString()}</div><div class="card-label">Total Sq Ft</div></div></div>`;
+    html += `<h2>Cooling Load Breakdown</h2><table><thead><tr><th>Component</th><th style="text-align:right">BTU/hr</th><th style="text-align:right">% of Total</th></tr></thead><tbody>`;
+    Object.entries(r.loadBreakdown).forEach(([k, v]) => {
+      const pct = r.totalCoolingLoad > 0 ? ((v / r.totalCoolingLoad) * 100).toFixed(1) : '0';
+      html += '<tr><td style="text-transform:capitalize">' + k.replace(/([A-Z])/g, ' $1').trim() + '</td><td style="text-align:right">' + v.toLocaleString() + '</td><td style="text-align:right">' + pct + '%</td></tr>';
+    });
+    html += `</tbody></table>`;
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">`;
+    html += `<div class="card"><div class="card-val">${r.effectiveACH}</div><div class="card-label">Effective ACH</div></div>`;
+    html += `<div class="card"><div class="card-val">${r.ductLossFactor}%</div><div class="card-label">Duct Loss</div></div>`;
+    html += `<div class="card"><div class="card-val">${r.buildingVolume.toLocaleString()}</div><div class="card-label">Volume Cu Ft</div></div></div>`;
+    html += `<h2>Room-by-Room Results</h2><table><thead><tr><th>Room</th><th style="text-align:right">Sq Ft</th><th style="text-align:right">Cooling BTU</th><th style="text-align:right">Heating BTU</th><th style="text-align:right">CFM</th></tr></thead><tbody>`;
+    r.roomLoads.forEach(rm => { html += '<tr><td>' + rm.name + '</td><td style="text-align:right">' + Number(rm.sqft).toLocaleString() + '</td><td style="text-align:right">' + rm.coolingBtu.toLocaleString() + '</td><td style="text-align:right">' + rm.heatingBtu.toLocaleString() + '</td><td style="text-align:right">' + rm.cfm + '</td></tr>'; });
+    html += `</tbody></table>`;
+    if (r.equipmentOptions) {
+      html += `<h2>Equipment Sizing Recommendations</h2><table><thead><tr><th>Option</th><th>Tonnage</th><th>SEER</th><th>HSPF</th><th>Brand</th><th>Notes</th></tr></thead><tbody>`;
+      r.equipmentOptions.forEach(eq => { html += '<tr><td>' + eq.label + '</td><td>' + eq.tons + ' ton</td><td>' + eq.seer + '</td><td>' + eq.hspf + '</td><td>' + eq.brand + '</td><td>' + eq.note + '</td></tr>'; });
+      html += `</tbody></table>`;
+    }
+    html += `<div class="disclaimer">This load calculation is for estimation purposes. Final equipment selection should be verified by a licensed HVAC contractor. Manual J calculations per ACCA methodology.</div>`;
+    html += `<div class="footer"><span>Cooper Mechanical Services · www.CallCooper.com</span><span>Generated ${new Date().toLocaleDateString()}</span></div>`;
+    html += `</body></html>`;
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 300);
+  }, [results, formData]);
+
   // Calculate loads (simplified but more comprehensive)
   const calculateLoad = () => {
     setIsCalculating(true);
@@ -503,6 +644,12 @@ const CooperJLoadCalculatorPro = () => {
         ductLossFactor: ((ductLossFactor - 1) * 100).toFixed(1),
         roomLoads,
         loadBreakdown,
+        // Equipment recommendations
+        equipmentOptions: [
+          { tons: recommendedTonnage, label: 'Standard Efficiency', seer: 14, hspf: 8.2, brand: 'Carrier/Bryant', note: 'Minimum code (2023 SEER2)' },
+          { tons: recommendedTonnage, label: 'High Efficiency', seer: 16, hspf: 9.0, brand: 'Carrier Infinity', note: 'Good rebate potential' },
+          { tons: recommendedTonnage, label: 'Premium', seer: 20, hspf: 10, brand: 'Carrier Greenspeed', note: 'Variable speed, best comfort' },
+        ],
         timestamp: new Date().toLocaleString(),
       });
       
@@ -627,6 +774,12 @@ const CooperJLoadCalculatorPro = () => {
         }}>
           PRO
         </div>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', justifyContent: 'flex-end' }}>
+        <button onClick={() => setShowSaveModal(true)} style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '11px' }}>💾 Save</button>
+        <button onClick={() => { setSavedProjects(JSON.parse(localStorage.getItem('cooper-jload-projects') || '[]')); setShowLoadModal(true); }} style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '11px' }}>📂 Load</button>
       </div>
 
       {/* Tab Navigation */}
@@ -757,6 +910,7 @@ const CooperJLoadCalculatorPro = () => {
                       onChange={(e) => updateNested('project', 'zip', e.target.value)}
                       style={inputStyle}
                     />
+                    <button onClick={() => lookupClimate(formData.project.zip)} style={{ marginTop: '4px', padding: '4px 10px', background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '4px', color: '#D4AF37', cursor: 'pointer', fontSize: '10px' }}>🌡️ Auto-fill climate data</button>
                   </div>
                 </div>
               </div>
@@ -2204,9 +2358,27 @@ const CooperJLoadCalculatorPro = () => {
                   </div>
                 </div>
 
+                {results.equipmentOptions && (
+                  <div style={sectionStyle}>
+                    <h3 style={sectionTitleStyle}>🏗️ Equipment Sizing Recommendations</h3>
+                    {results.equipmentOptions.map((eq, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: i === 0 ? 'rgba(227,25,55,0.08)' : 'rgba(0,0,0,0.2)', borderRadius: '6px', marginBottom: '6px', border: i === 0 ? '1px solid rgba(227,25,55,0.2)' : '1px solid rgba(255,255,255,0.06)' }}>
+                        <div>
+                          <div style={{ fontWeight: '600', fontSize: '13px', color: i === 0 ? '#E31937' : '#fff' }}>{eq.label} — {eq.tons} Ton</div>
+                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>{eq.brand} · {eq.note}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '12px', color: '#D4AF37', fontWeight: '600' }}>{eq.seer} SEER</div>
+                          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>{eq.hspf} HSPF</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
-                  <button style={{
+                  <button onClick={exportPDF} style={{
                     flex: 1,
                     padding: '12px',
                     background: '#E31937',
@@ -2279,12 +2451,44 @@ const CooperJLoadCalculatorPro = () => {
         </div>
       )}
 
+      {showSaveModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowSaveModal(false)}>
+          <div style={{ background: '#1a2332', borderRadius: '12px', padding: '24px', maxWidth: '400px', width: '90%', border: '1px solid rgba(255,255,255,0.1)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ color: '#D4AF37', margin: '0 0 16px', fontSize: '16px' }}>💾 Save Project</h3>
+            <input id="save-name" defaultValue={formData.project.name || formData.project.customerName || ''} placeholder="Project name..." style={{ width: '100%', padding: '10px 12px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '14px', boxSizing: 'border-box', marginBottom: '12px' }} autoFocus />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => { const name = document.getElementById('save-name')?.value; if (name) saveProject(name); }} style={{ flex: 1, padding: '10px', background: '#E31937', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Save</button>
+              <button onClick={() => setShowSaveModal(false)} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLoadModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowLoadModal(false)}>
+          <div style={{ background: '#1a2332', borderRadius: '12px', padding: '24px', maxWidth: '500px', width: '90%', maxHeight: '70vh', overflow: 'auto', border: '1px solid rgba(255,255,255,0.1)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ color: '#D4AF37', margin: '0 0 16px', fontSize: '16px' }}>📂 Load Project</h3>
+            {savedProjects.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '20px', color: 'rgba(255,255,255,0.4)' }}>No saved projects yet</div>
+            ) : savedProjects.map((p, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginBottom: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => loadProject(p)}>
+                  <div style={{ color: '#fff', fontSize: '13px', fontWeight: '600' }}>{p.name}</div>
+                  <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px' }}>{new Date(p.savedAt).toLocaleString()}</div>
+                </div>
+                <button onClick={() => deleteProject(p.name)} style={{ padding: '4px 8px', background: 'rgba(227,25,55,0.15)', border: 'none', borderRadius: '4px', color: '#E31937', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+              </div>
+            ))}
+            <button onClick={() => setShowLoadModal(false)} style={{ width: '100%', marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '13px' }}>Close</button>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
-      <div style={{ 
-        marginTop: '16px', 
-        textAlign: 'center', 
-        fontSize: '10px', 
-        color: 'rgba(255,255,255,0.3)' 
+      <div style={{
+        marginTop: '16px',
+        textAlign: 'center',
+        fontSize: '10px',
+        color: 'rgba(255,255,255,0.3)'
       }}>
         Cooper Mechanical Services • Manual J8 Load Calculator • For estimation purposes — verify with certified software for permit submission
       </div>

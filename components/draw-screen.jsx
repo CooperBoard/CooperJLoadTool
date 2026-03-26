@@ -49,6 +49,34 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   const [syncStatus, setSyncStatus] = useState('');
   const [selectedComponent, setSelectedComponent] = useState(null); // { roomId, compId }
   const [draggingComponent, setDraggingComponent] = useState(null); // { roomId, compId }
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [activeFloor, setActiveFloor] = useState(1);
+
+  // === UNDO / REDO ===
+  const pushHistory = useCallback((rooms) => {
+    setHistory(prev => {
+      const newHist = prev.slice(0, historyIndex + 1);
+      newHist.push(JSON.parse(JSON.stringify(rooms)));
+      if (newHist.length > 50) newHist.shift();
+      return newHist;
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+  }, [historyIndex]);
+
+  const undo = useCallback(() => {
+    if (historyIndex <= 0) return;
+    const newIdx = historyIndex - 1;
+    setHistoryIndex(newIdx);
+    setDrawRooms(JSON.parse(JSON.stringify(history[newIdx])));
+  }, [history, historyIndex]);
+
+  const redo = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+    const newIdx = historyIndex + 1;
+    setHistoryIndex(newIdx);
+    setDrawRooms(JSON.parse(JSON.stringify(history[newIdx])));
+  }, [history, historyIndex]);
 
   // ============================================================
   // HOTLINK SYNC: Push drawn data into formData
@@ -338,16 +366,17 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
       if (w >= GRID_SIZE * 2 && h >= GRID_SIZE * 2) {
         const nr = {
           id: Date.now(), name: `Room ${nextRoomNum}`, x, y, w, h,
-          ceilingHeight: 9, floor: 1, components: [],
+          ceilingHeight: 9, floor: activeFloor, components: [],
           wallTypes: ['exterior', 'exterior', 'exterior', 'exterior'],
         };
         setDrawRooms(prev => [...prev, nr]);
         setSelectedRoom(nr);
+        pushHistory([...drawRooms, nr]);
         setNextRoomNum(p => p + 1);
       }
       setIsDrawing(false); setDrawStart(null); setDrawCurrent(null);
     }
-  }, [isPanning, isDrawing, activeTool, drawStart, drawCurrent, nextRoomNum]);
+  }, [isPanning, isDrawing, activeTool, drawStart, drawCurrent, nextRoomNum, pushHistory, drawRooms, activeFloor]);
 
   const handleWheel = useCallback((e) => {
     e.preventDefault();
@@ -360,16 +389,19 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   useEffect(() => {
     const hk = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
       if (e.key === 'v' || e.key === 'V') setActiveTool('select');
       else if (e.key === 'r' || e.key === 'R') setActiveTool('room');
       else if (e.key === 'w' || e.key === 'W') { setActiveTool('window'); setPlacingComponent({ type: 'window', preset: WINDOW_PRESETS[1] }); }
       else if (e.key === 'd' || e.key === 'D') { setActiveTool('door'); setPlacingComponent({ type: 'door', preset: DOOR_PRESETS[0] }); }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedComponent) { deleteComponent(selectedComponent.roomId, selectedComponent.compId); }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRoom && activeTool === 'select') { setDrawRooms(p => p.filter(r => r.id !== selectedRoom.id)); setSelectedRoom(null); }
-      else if (e.key === 'Escape') { setActiveTool('select'); setSelectedRoom(null); setSelectedWall(null); setPlacingComponent(null); if (onBack && isFullScreen) onBack(); }
+      else if (e.key === 'Escape') { setActiveTool('select'); setSelectedRoom(null); setSelectedWall(null); setPlacingComponent(null); setSelectedComponent(null); if (onBack && isFullScreen) onBack(); }
     };
     window.addEventListener('keydown', hk);
     return () => window.removeEventListener('keydown', hk);
-  }, [selectedRoom, activeTool, onBack, isFullScreen]);
+  }, [selectedRoom, activeTool, onBack, isFullScreen, undo, redo, selectedComponent, deleteComponent]);
 
   // ============================================================
   // CANVAS RENDERING
@@ -403,7 +435,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
     ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(0, ge.y); ctx.stroke(); ctx.setLineDash([]);
 
     // Rooms
-    drawRooms.forEach(room => {
+    drawRooms.filter(r => r.floor === activeFloor).forEach(room => {
       const isSel = selectedRoom?.id === room.id;
       const isHov = hoveredRoom === room.id;
       ctx.fillStyle = isSel ? 'rgba(227,25,55,0.08)' : isHov ? 'rgba(212,175,55,0.05)' : 'rgba(43,62,80,0.12)';
@@ -514,7 +546,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
     ctx.beginPath(); ctx.moveTo(0, cpr - 4); ctx.lineTo(-4, -1); ctx.lineTo(4, -1); ctx.closePath(); ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill();
     ctx.font = 'bold 10px system-ui'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('N', 0, -cpr - 9); ctx.restore();
-  }, [drawRooms, selectedRoom, selectedWall, hoveredRoom, isDrawing, drawStart, drawCurrent, panOffset, zoom, getRoomWalls, isSharedWall]);
+  }, [drawRooms, selectedRoom, selectedWall, hoveredRoom, isDrawing, drawStart, drawCurrent, panOffset, zoom, getRoomWalls, isSharedWall, activeFloor]);
 
   // Room property updates
   const updateRoom = (id, field, value) => {
@@ -573,7 +605,20 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
           <span style={{ color: 'rgba(255,255,255,0.4)' }}>Total: <span style={{ color: '#fff' }}>{drawRooms.reduce((s, r) => s + Math.round(r.w / GRID_SIZE * r.h / GRID_SIZE), 0)} sf</span></span>
           {syncStatus && <span style={{ color: '#4CAF50', fontSize: '10px' }}>✓ {syncStatus}</span>}
           <div style={{ flex: 1 }} />
-          <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '10px' }}>Alt+Drag pan · Scroll zoom · Select tool: drag windows/doors · Right-click to delete</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', marginRight: '4px' }}>FLOOR</span>
+            {[1, 2, 3].map(f => (
+              <button key={f} onClick={() => setActiveFloor(f)} style={{
+                padding: '5px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', cursor: 'pointer', fontFamily: 'system-ui',
+                background: activeFloor === f ? COOPER_RED : 'rgba(0,0,0,0.3)',
+                border: activeFloor === f ? '1px solid ' + COOPER_RED : '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+              }}>{f}F</button>
+            ))}
+            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginLeft: '8px' }}>
+              Ctrl+Z undo · Ctrl+Y redo
+            </span>
+          </div>
         </div>
 
         {/* Component tray */}
@@ -656,6 +701,32 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
               {WINDOW_PRESETS.map((p, i) => (<button key={i} onClick={() => { setActiveTool('window'); setPlacingComponent({ type: 'window', preset: p }); }} style={{ width: '100%', textAlign: 'left', padding: '7px 10px', marginBottom: '3px', background: placingComponent?.preset?.name === p.name && activeTool === 'window' ? 'rgba(227,25,55,0.15)' : 'rgba(0,0,0,0.2)', border: '1px solid', borderColor: placingComponent?.preset?.name === p.name && activeTool === 'window' ? 'rgba(227,25,55,0.3)' : 'rgba(255,255,255,0.06)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '11px', fontFamily: 'system-ui', display: 'flex', justifyContent: 'space-between' }}><span>🪟 {p.name}</span><span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '9px' }}>U:{p.uFactor}</span></button>))}
               <div style={{ fontSize: '9px', color: COOPER_GOLD, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px', marginTop: '16px', fontWeight: '600' }}>Doors</div>
               {DOOR_PRESETS.map((p, i) => (<button key={i} onClick={() => { setActiveTool('door'); setPlacingComponent({ type: 'door', preset: p }); }} style={{ width: '100%', textAlign: 'left', padding: '7px 10px', marginBottom: '3px', background: placingComponent?.preset?.name === p.name && activeTool === 'door' ? 'rgba(227,25,55,0.15)' : 'rgba(0,0,0,0.2)', border: '1px solid', borderColor: placingComponent?.preset?.name === p.name && activeTool === 'door' ? 'rgba(227,25,55,0.3)' : 'rgba(255,255,255,0.06)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '11px', fontFamily: 'system-ui', display: 'flex', justifyContent: 'space-between' }}><span>🚪 {p.name}</span><span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '9px' }}>U:{p.uFactor}</span></button>))}
+              <div style={{ fontSize: '9px', color: COOPER_GOLD, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px', marginTop: '16px', fontWeight: '600' }}>Room Templates</div>
+              {[
+                { name: 'Master Bed', w: 14, h: 16, windows: [{wall:2,pos:0.5,preset:1}], doors: [{wall:3,pos:0.3,preset:1}] },
+                { name: 'Bedroom', w: 12, h: 12, windows: [{wall:2,pos:0.5,preset:0}], doors: [{wall:3,pos:0.5,preset:1}] },
+                { name: 'Kitchen', w: 14, h: 12, windows: [{wall:2,pos:0.5,preset:1}], doors: [] },
+                { name: 'Living Room', w: 18, h: 16, windows: [{wall:2,pos:0.3,preset:2},{wall:2,pos:0.7,preset:2}], doors: [{wall:0,pos:0.5,preset:0}] },
+                { name: 'Bathroom', w: 8, h: 10, windows: [{wall:2,pos:0.5,preset:0}], doors: [{wall:3,pos:0.5,preset:1}] },
+                { name: 'Garage', w: 20, h: 22, windows: [], doors: [{wall:0,pos:0.5,preset:0}] },
+              ].map((tmpl, i) => (
+                <button key={i} onClick={() => {
+                  const nr = {
+                    id: Date.now() + i, name: tmpl.name, x: 60 + (drawRooms.length % 3) * 400, y: 60 + Math.floor(drawRooms.length / 3) * 400,
+                    w: tmpl.w * GRID_SIZE, h: tmpl.h * GRID_SIZE, ceilingHeight: 9, floor: activeFloor,
+                    components: [
+                      ...tmpl.windows.map((w, wi) => ({ id: Date.now() + wi + 100, type: 'window', wallIndex: w.wall, position: w.pos, ...WINDOW_PRESETS[w.preset] })),
+                      ...tmpl.doors.map((d, di) => ({ id: Date.now() + di + 200, type: 'door', wallIndex: d.wall, position: d.pos, ...DOOR_PRESETS[d.preset] })),
+                    ],
+                    wallTypes: ['exterior', 'exterior', 'exterior', 'exterior'],
+                  };
+                  setDrawRooms(prev => [...prev, nr]);
+                  setSelectedRoom(nr);
+                  setNextRoomNum(p => p + 1);
+                }} style={{ width: '100%', textAlign: 'left', padding: '7px 10px', marginBottom: '3px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '11px', fontFamily: 'system-ui' }}>
+                  📐 {tmpl.name} <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '9px' }}>{tmpl.w}×{tmpl.h} ft</span>
+                </button>
+              ))}
             </div>
           )}
 
