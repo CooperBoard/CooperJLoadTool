@@ -28,11 +28,14 @@ const DOOR_PRESETS = [
 
 const snap = (v) => Math.round(v / SNAP) * SNAP;
 
-const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => {
+const DrawScreen = ({ formData, setFormData, drawRooms: externalDrawRooms, setDrawRooms: externalSetDrawRooms, onBack, isFullScreen = false }) => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [activeTool, setActiveTool] = useState('room');
-  const [drawRooms, setDrawRooms] = useState([]); // Internal drawing state
+  // Use external state if provided (persists across tab switches), otherwise internal
+  const [_internalDrawRooms, _internalSetDrawRooms] = useState([]);
+  const drawRooms = externalDrawRooms !== undefined ? externalDrawRooms : _internalDrawRooms;
+  const setDrawRooms = externalSetDrawRooms || _internalSetDrawRooms;
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [selectedWall, setSelectedWall] = useState(null);
   const [hoveredRoom, setHoveredRoom] = useState(null);

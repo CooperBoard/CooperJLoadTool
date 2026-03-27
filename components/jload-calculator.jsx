@@ -8,6 +8,7 @@ const CooperJLoadCalculatorPro = () => {
   const [isCalculating, setIsCalculating] = useState(false);
   const [results, setResults] = useState(null);
   const [drawFullScreen, setDrawFullScreen] = useState(false);
+  const [drawRooms, setDrawRooms] = useState([]);
   const [savedProjects, setSavedProjects] = useState([]);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
@@ -347,7 +348,7 @@ const CooperJLoadCalculatorPro = () => {
 
   // === SAVE / LOAD ===
   const saveProject = useCallback((name) => {
-    const project = { name, formData, results, savedAt: new Date().toISOString() };
+    const project = { name, formData, results, drawRooms, savedAt: new Date().toISOString() };
     const projects = JSON.parse(localStorage.getItem('cooper-jload-projects') || '[]');
     const existing = projects.findIndex(p => p.name === name);
     if (existing >= 0) projects[existing] = project;
@@ -355,11 +356,12 @@ const CooperJLoadCalculatorPro = () => {
     localStorage.setItem('cooper-jload-projects', JSON.stringify(projects));
     setSavedProjects(projects);
     setShowSaveModal(false);
-  }, [formData, results]);
+  }, [formData, results, drawRooms]);
 
   const loadProject = useCallback((project) => {
     setFormData(project.formData);
     if (project.results) setResults(project.results);
+    if (project.drawRooms) setDrawRooms(project.drawRooms);
     setShowLoadModal(false);
   }, []);
 
@@ -722,6 +724,8 @@ const CooperJLoadCalculatorPro = () => {
       <DrawScreen
         formData={formData}
         setFormData={setFormData}
+        drawRooms={drawRooms}
+        setDrawRooms={setDrawRooms}
         onBack={() => setDrawFullScreen(false)}
         isFullScreen={true}
       />
@@ -845,6 +849,8 @@ const CooperJLoadCalculatorPro = () => {
             <DrawScreen
               formData={formData}
               setFormData={setFormData}
+              drawRooms={drawRooms}
+              setDrawRooms={setDrawRooms}
               onBack={() => setActiveTab('rooms')}
               isFullScreen={false}
             />
