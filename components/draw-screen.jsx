@@ -644,10 +644,21 @@ const DrawScreen = ({ formData, setFormData, drawRooms: externalDrawRooms, setDr
           <button onClick={onBack} title="Back to Calculator" style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '6px', color: COOPER_GOLD, cursor: 'pointer', fontSize: '16px', fontFamily: 'system-ui', marginBottom: '8px' }}>←</button>
         )}
         {tools.map(t => (
-          <button key={t.id} onClick={() => { setActiveTool(t.id); if (t.id === 'window') setPlacingComponent({ type: 'window', preset: WINDOW_PRESETS[1] }); else if (t.id === 'door') setPlacingComponent({ type: 'door', preset: DOOR_PRESETS[0] }); else setPlacingComponent(null); }} title={t.label} style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: activeTool === t.id ? COOPER_RED : 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '17px', fontFamily: 'system-ui', transition: 'all 0.15s' }}>
+          <button key={t.id} onClick={() => {
+            // Toggle: clicking active window/door tool deselects back to room
+            if (activeTool === t.id && (t.id === 'window' || t.id === 'door')) {
+              setActiveTool('room'); setPlacingComponent(null); return;
+            }
+            setActiveTool(t.id);
+            if (t.id === 'window') setPlacingComponent({ type: 'window', preset: WINDOW_PRESETS[1] });
+            else if (t.id === 'door') setPlacingComponent({ type: 'door', preset: DOOR_PRESETS[0] });
+            else setPlacingComponent(null);
+          }} title={t.label} style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: activeTool === t.id ? COOPER_RED : 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '17px', fontFamily: 'system-ui', transition: 'all 0.15s' }}>
             {t.icon}
           </button>
         ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={undo} title="Undo (Ctrl+Z)" style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: historyIndex > 0 ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.03)', border: historyIndex > 0 ? '1px solid rgba(212,175,55,0.3)' : '1px solid rgba(255,255,255,0.05)', borderRadius: '6px', color: historyIndex > 0 ? COOPER_GOLD : 'rgba(255,255,255,0.2)', cursor: historyIndex > 0 ? 'pointer' : 'default', fontSize: '15px', fontFamily: 'system-ui' }}>↩</button>
         <div style={{ flex: 1 }} />
         <button onClick={() => setZoom(p => Math.min(4, p * 1.2))} style={{ width: '34px', height: '26px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '15px', fontFamily: 'system-ui' }}>+</button>
         <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>{Math.round(zoom * 100)}%</div>
@@ -686,7 +697,7 @@ const DrawScreen = ({ formData, setFormData, drawRooms: externalDrawRooms, setDr
           <div style={{ height: '40px', background: 'rgba(0,0,0,0.2)', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '6px' }}>
             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginRight: '6px' }}>{activeTool === 'window' ? '🪟' : '🚪'} Click wall:</span>
             {(activeTool === 'window' ? WINDOW_PRESETS : DOOR_PRESETS).map((p, i) => (
-              <button key={i} onClick={() => setPlacingComponent({ type: activeTool, preset: p })} style={{ padding: '3px 10px', fontSize: '10px', background: placingComponent?.preset?.name === p.name ? COOPER_RED : 'rgba(255,255,255,0.07)', border: '1px solid', borderColor: placingComponent?.preset?.name === p.name ? COOPER_RED : 'rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontFamily: 'system-ui' }}>
+              <button key={i} onClick={() => { if (placingComponent?.preset?.name === p.name) { setActiveTool('room'); setPlacingComponent(null); } else { setPlacingComponent({ type: activeTool, preset: p }); } }} style={{ padding: '3px 10px', fontSize: '10px', background: placingComponent?.preset?.name === p.name ? COOPER_RED : 'rgba(255,255,255,0.07)', border: '1px solid', borderColor: placingComponent?.preset?.name === p.name ? COOPER_RED : 'rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontFamily: 'system-ui' }}>
                 {p.name}
               </button>
             ))}
