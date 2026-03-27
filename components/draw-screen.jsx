@@ -49,6 +49,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   const [syncStatus, setSyncStatus] = useState('');
   const [selectedComponent, setSelectedComponent] = useState(null); // { roomId, compId }
   const [draggingComponent, setDraggingComponent] = useState(null); // { roomId, compId }
+  const [resizing, setResizing] = useState(null); // { roomId, edge: 'n'|'s'|'e'|'w'|'ne'|'nw'|'se'|'sw', startX, startY, origRoom }
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [activeFloor, setActiveFloor] = useState(1);
@@ -288,6 +289,30 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
     setSelectedComponent(null);
   }, []);
 
+  const findResizeHandle = useCallback((px, py) => {
+    if (!selectedRoom) return null;
+    const r = drawRooms.find(rm => rm.id === selectedRoom.id);
+    if (!r) return null;
+    const pad = 8 / zoom;
+    const onLeft = Math.abs(px - r.x) < pad;
+    const onRight = Math.abs(px - (r.x + r.w)) < pad;
+    const onTop = Math.abs(py - r.y) < pad;
+    const onBottom = Math.abs(py - (r.y + r.h)) < pad;
+    const inX = px >= r.x - pad && px <= r.x + r.w + pad;
+    const inY = py >= r.y - pad && py <= r.y + r.h + pad;
+    // Corners first
+    if (onTop && onLeft) return 'nw';
+    if (onTop && onRight) return 'ne';
+    if (onBottom && onLeft) return 'sw';
+    if (onBottom && onRight) return 'se';
+    // Edges
+    if (onTop && inX) return 'n';
+    if (onBottom && inX) return 's';
+    if (onLeft && inY) return 'w';
+    if (onRight && inY) return 'e';
+    return null;
+  }, [selectedRoom, drawRooms, zoom]);
+
   // ============================================================
   // MOUSE HANDLERS
   // ============================================================
@@ -311,7 +336,16 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
       setDrawStart({ x: snap(pos.x), y: snap(pos.y) });
       setDrawCurrent({ x: snap(pos.x), y: snap(pos.y) });
     } else if (activeTool === 'select') {
-      // Check components first (windows/doors) — start drag if hit
+      // Check resize handles on selected room first
+      const edge = findResizeHandle(pos.x, pos.y);
+      if (edge && selectedRoom) {
+        const origRoom = drawRooms.find(r => r.id === selectedRoom.id);
+        if (origRoom) {
+          setResizing({ roomId: origRoom.id, edge, startX: pos.x, startY: pos.y, origRoom: { ...origRoom } });
+          return;
+        }
+      }
+      // Check components (windows/doors) — start drag if hit
       const ch = findComponentAtPoint(pos.x, pos.y);
       if (ch) {
         setSelectedComponent({ roomId: ch.roomId, compId: ch.compId });
@@ -342,6 +376,21 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   const handleMouseMove = useCallback((e) => {
     if (isPanning) { setPanOffset({ x: e.clientX - panStart.x, y: e.clientY - panStart.y }); return; }
     const pos = getCanvasPos(e);
+    // Resizing a room
+    if (resizing) {
+      const dx = snap(pos.x - resizing.startX);
+      const dy = snap(pos.y - resizing.startY);
+      const o = resizing.origRoom;
+      const minSize = GRID_SIZE * 2;
+      let nx = o.x, ny = o.y, nw = o.w, nh = o.h;
+      if (resizing.edge.includes('e')) nw = Math.max(minSize, o.w + dx);
+      if (resizing.edge.includes('w')) { nw = Math.max(minSize, o.w - dx); nx = o.x + o.w - nw; }
+      if (resizing.edge.includes('s')) nh = Math.max(minSize, o.h + dy);
+      if (resizing.edge.includes('n')) { nh = Math.max(minSize, o.h - dy); ny = o.y + o.h - nh; }
+      setDrawRooms(prev => prev.map(r => r.id === resizing.roomId ? { ...r, x: nx, y: ny, w: nw, h: nh } : r));
+      if (selectedRoom?.id === resizing.roomId) setSelectedRoom(prev => ({ ...prev, x: nx, y: ny, w: nw, h: nh }));
+      return;
+    }
     // Dragging a component — snap to nearest wall
     if (draggingComponent) {
       const room = drawRooms.find(r => r.id === draggingComponent.roomId);
@@ -358,6 +407,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
   }, [isPanning, isDrawing, activeTool, getCanvasPos, findRoomAtPoint, panStart, draggingComponent, drawRooms, findWallAtPoint, moveComponentToWall]);
 
   const handleMouseUp = useCallback(() => {
+    if (resizing) { setResizing(null); return; }
     if (draggingComponent) { setDraggingComponent(null); return; }
     if (isPanning) { setIsPanning(false); return; }
     if (isDrawing && activeTool === 'room' && drawStart && drawCurrent) {
@@ -515,11 +565,18 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
       }
       ctx.restore();
 
-      // Selection handles
+      // Selection + resize handles
       if (isSel) {
         const hs = 6 / zoom; ctx.fillStyle = COOPER_RED;
+        // Corner handles
         [[room.x, room.y], [room.x + room.w, room.y], [room.x, room.y + room.h], [room.x + room.w, room.y + room.h]].forEach(([cx, cy]) => {
           ctx.fillRect(cx - hs / 2, cy - hs / 2, hs, hs);
+        });
+        // Edge midpoint handles
+        ctx.fillStyle = '#fff';
+        const es = 4 / zoom;
+        [[room.x + room.w / 2, room.y], [room.x + room.w / 2, room.y + room.h], [room.x, room.y + room.h / 2], [room.x + room.w, room.y + room.h / 2]].forEach(([cx, cy]) => {
+          ctx.fillRect(cx - es / 2, cy - es / 2, es, es);
         });
       }
     });
@@ -635,7 +692,7 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
 
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: 'relative', cursor: activeTool === 'room' ? 'crosshair' : activeTool === 'delete' ? 'not-allowed' : isPanning ? 'grabbing' : 'default' }} onWheel={handleWheel}>
-          <canvas ref={canvasRef} style={{ display: 'block', cursor: draggingComponent ? 'grabbing' : undefined }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={() => { setIsPanning(false); setIsDrawing(false); setDraggingComponent(null); }} onContextMenu={(e) => e.preventDefault()} />
+          <canvas ref={canvasRef} style={{ display: 'block', cursor: resizing ? ({'n':'ns-resize','s':'ns-resize','e':'ew-resize','w':'ew-resize','ne':'nesw-resize','sw':'nesw-resize','nw':'nwse-resize','se':'nwse-resize'}[resizing.edge]||'default') : draggingComponent ? 'grabbing' : undefined }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={() => { setIsPanning(false); setIsDrawing(false); setDraggingComponent(null); setResizing(null); }} onContextMenu={(e) => e.preventDefault()} />
         </div>
       </div>
 
@@ -657,8 +714,8 @@ const DrawScreen = ({ formData, setFormData, onBack, isFullScreen = false }) => 
                 <label style={{ display: 'block', fontSize: '9px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: '3px' }}>Name</label>
                 <input type="text" value={selectedRoom.name} onChange={e => updateRoom(selectedRoom.id, 'name', e.target.value)} style={{ ...inputSt, marginBottom: '10px' }} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '10px' }}>
-                  <div><label style={{ display: 'block', fontSize: '9px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: '3px' }}>Width</label><div style={{ padding: '7px 8px', background: 'rgba(0,0,0,0.2)', borderRadius: '4px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{selectedRoom.w / GRID_SIZE} ft</div></div>
-                  <div><label style={{ display: 'block', fontSize: '9px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: '3px' }}>Depth</label><div style={{ padding: '7px 8px', background: 'rgba(0,0,0,0.2)', borderRadius: '4px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{selectedRoom.h / GRID_SIZE} ft</div></div>
+                  <div><label style={{ display: 'block', fontSize: '9px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: '3px' }}>Width (ft)</label><input type="number" min="2" max="100" value={selectedRoom.w / GRID_SIZE} onChange={e => { const v = Math.max(2, Number(e.target.value) || 2); updateRoom(selectedRoom.id, 'w', v * GRID_SIZE); }} style={inputSt} /></div>
+                  <div><label style={{ display: 'block', fontSize: '9px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: '3px' }}>Depth (ft)</label><input type="number" min="2" max="100" value={selectedRoom.h / GRID_SIZE} onChange={e => { const v = Math.max(2, Number(e.target.value) || 2); updateRoom(selectedRoom.id, 'h', v * GRID_SIZE); }} style={inputSt} /></div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '14px' }}>
                   <div><label style={{ display: 'block', fontSize: '9px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: '3px' }}>Sq Ft</label><div style={{ padding: '7px 8px', background: 'rgba(212,175,55,0.1)', borderRadius: '4px', fontSize: '12px', color: COOPER_GOLD, fontWeight: '600' }}>{Math.round(selectedRoom.w / GRID_SIZE * selectedRoom.h / GRID_SIZE)}</div></div>
